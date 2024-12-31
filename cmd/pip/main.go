@@ -1,7 +1,10 @@
 package main
 
-import "poc-opa-access-control-system/internal/pkg"
+import (
+	"fmt"
+	"poc-opa-access-control-system/internal/pkg"
+)
 
 func main() {
-	pkg.Call()
+	fmt.Println(pkg.Call())
 }

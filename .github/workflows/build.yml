@@ -19,7 +19,7 @@ jobs:
           go-version: 1.21
 
       - name: Initialize Go workspace
-        run: go work init ./cmd/pep ./cmd/pdp ./cmd/pip ./internal
+        run: make init
 
       - name: Build PEP
         run: |
