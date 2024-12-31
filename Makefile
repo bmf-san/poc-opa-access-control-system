@@ -62,12 +62,8 @@ test:
 tidy:
 	@echo "Tidying Go modules in each app..."
 	@for module in ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
-		if [ -d $$module ]; then \
-			echo "Tidying $$module..."; \
-			cd $$module && go mod tidy; \
-		else \
-			echo "$$module does not exist, skipping..."; \
-		fi \
+		echo "Tidying $$module..."; \
+		cd $$module && go mod tidy && cd -; \
 	done
 
 # Initialize Go workspace
