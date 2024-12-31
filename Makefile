@@ -72,7 +72,4 @@ init:
 	@echo "Initializing Go workspace..."
 	@go work init ./cmd/pep ./cmd/pdp ./cmd/pip ./internal
 	@echo "Tidying Go modules in each app..."
-	@for module in ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
-		echo "Tidying $$module..."; \
-		cd $$module && go mod tidy; \
-	done
+	$(MAKE) tidy
