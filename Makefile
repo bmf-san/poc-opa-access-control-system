@@ -73,3 +73,15 @@ init:
 	@go work init ./cmd/pep ./cmd/pdp ./cmd/pip ./internal
 	@echo "Tidying Go modules in each app..."
 	$(MAKE) tidy
+
+# Start docker-compose
+.PHONY: docker-compose-up
+docker-compose-up:
+	@echo "Starting docker-compose..."
+	@docker-compose up -d
+
+# Stop docker-compose
+.PHONY: docker-compose-down
+docker-compose-down:
+	@echo "Stopping docker-compose..."
+	@docker-compose down
