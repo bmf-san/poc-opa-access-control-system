@@ -4,7 +4,7 @@ CMD_DIR := $(GO_WORKSPACE_DIR)/cmd
 BUILD_DIR := $(GO_WORKSPACE_DIR)/bin
 
 # Applications
-APPS := pep pdp pip
+APPS := foo pep pdp pip
 
 # Default target
 .PHONY: all
@@ -52,7 +52,7 @@ run-all: build
 .PHONY: test
 test:
 	@echo "Running tests..."
-	@for module in ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
+	@for module in ./cmd/foo ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
 		echo "Testing $$module..."; \
 		go test $$module/... || exit 1; \
 	done
@@ -61,7 +61,7 @@ test:
 .PHONY: tidy
 tidy:
 	@echo "Tidying Go modules in each app..."
-	@for module in ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
+	@for module in ./cmd/foo ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
 		echo "Tidying $$module..."; \
 		cd $$module && go mod tidy && cd -; \
 	done
@@ -70,7 +70,7 @@ tidy:
 .PHONY: init
 init:
 	@echo "Initializing Go workspace..."
-	@go work init ./cmd/pep ./cmd/pdp ./cmd/pip ./internal
+	@go work init ./cmd/foo ./cmd/pep ./cmd/pdp ./cmd/pip ./internal
 	@echo "Tidying Go modules in each app..."
 	$(MAKE) tidy
 
