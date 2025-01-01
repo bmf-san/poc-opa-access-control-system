@@ -1,0 +1,34 @@
+name: Go Monorepo CI
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.21
+
+      - name: Initialize Go workspace
+        run: make init
+
+      - name: Build PEP
+        run: |
+          make pep
+
+      - name: Build PDP
+        run: |
+          make pdp
+
+      - name: Build PIP
+        run: |
+          make pip

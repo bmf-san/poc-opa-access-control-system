@@ -1,0 +1,25 @@
+services:
+  foo:
+    image: postgres:17.2
+    container_name: foo
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: foo
+    volumes:
+      - ./postgres/foo/1_init.sql:/docker-entrypoint-initdb.d/1_init.sql
+      - ./postgres/foo/2_data.sql:/docker-entrypoint-initdb.d/2_data.sql
+  prp:
+    image: postgres:17.2
+    container_name: prp
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: prp
+    volumes:
+      - ./postgres/prp/1_init.sql:/docker-entrypoint-initdb.d/1_init.sql
+      - ./postgres/prp/2_data.sql:/docker-entrypoint-initdb.d/2_data.sql

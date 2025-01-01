@@ -1,6 +1,33 @@
 # poc-opa-access-control-system
 This is a repository for POC of access control infrastructure using open policy agent.
 
+# Get Started
+## Prerequisites
+- Docker
+- Docker Compose
+- Go
+- Make
+
+## Installation and Setup
+1. Clone the repository.
+`git clone git@github.com:bmf-san/poc-opa-access-control-system.git`
+
+2. Initialize the Go Workspace.
+`make init`
+
+3. Start the Docker Containers.
+`make docker-compose-up`
+
+You can access the following services.
+
+// TBD:
+
+4. Run Tests.
+`make test`
+
+5. Stop the Docker Containers.
+`make docker-compose-down`
+
 # System Architecture
 ## C4 Model Container Diagram
 ```mermaid
