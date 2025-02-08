@@ -48,15 +48,73 @@ Because no virtual hosts correspondence is specified, a port specification is re
 `make docker-compose-down`
 
 ## Example of Access Control
-### Use Case
-<!-- TODO: Write usecases here -->
+We will validate the access control scenarios in a system assumed to be a SaaS for HR operations.
 
-<!-- TODO: -->
+### Role-Based Access Control (RBAC)
+#### Use Case: Managing Employee Access to Company Resources
+**Scenario:**
+- A company has employees with different roles: "Admin," "Manager," and "Employee."
+- "Admins" can manage users and set permissions.
+- "Managers" can approve requests but cannot modify permissions.
+- "Employees" can only access their own profile.
+
+**Implementation Approach:**
+1. Retrieve the user's role from the database (`user_roles` table).
+2. Fetch permissions linked to the role (`role_permissions` table).
+3. Pass the request data along with the user's roles and permissions to OPA.
+4. OPA evaluates the policies and determines whether the request is allowed.
+5. Return the access decision in the API response.
+
+**Example Request:**
+<!-- TODO: example script -->
 `curl -X GET http://foo.local/users -H "X-User-ID: user123"`
 
-### Request access to the Foo service
-<!-- TODO: RBAC  -->
-<!-- TODO: ABAC  -->
+### Relationship-Based Access Control (ReBAC)
+#### Use Case: Document Collaboration
+**Scenario:**
+- A system allows users to share documents with different permissions: "Owner," "Editor," and "Viewer."
+- "Owners" can modify, delete, and share the document.
+- "Editors" can modify the document but not delete or share it.
+- "Viewers" can only read the document.
+
+**Implementation Approach:**
+1. Retrieve the relationships between users and documents (`relationships` table).
+2. Identify the user's relation to the document ("owner," "editor," or "viewer").
+3. Pass the request data along with the relationship information to OPA.
+4. OPA evaluates the policies and determines access based on relationships.
+5. Return the decision in the API response.
+
+**Example Request:**
+<!-- TODO: example script -->
+`curl -X GET http://foo.local/users -H "X-User-ID: user123"`
+
+### Attribute-Based Access Control (ABAC)
+#### Use Case: Access Control Based on Employee Attributes
+**Scenario:**
+- A system restricts salary information access based on employment type and department.
+- Employees can only view their own salary.
+- Managers can view the salary details of employees in their department.
+- HR personnel can view all salary information.
+
+**Implementation Approach:**
+1. Retrieve user attributes (department, employment type) from the database (`users` table).
+2. Fetch applicable ABAC policies (`abac_policies` table) that match the request.
+3. Pass request data, user attributes, and policies to OPA.
+4. OPA evaluates policies and makes an access decision.
+5. Return the access decision in the API response.
+
+**Example Request:**
+<!-- TODO: example script -->
+`curl -X GET http://foo.local/users -H "X-User-ID: user123"`
+
+### Multi role-based access control
+<!-- TODO: -->
+
+### View your own permission settings
+<!-- TODO: -->
+
+### Reverse lookup of authority control
+<!-- TODO: Who has permission to see me? -->
 
 # System Architecture
 ## C4 Model Container Diagram
@@ -93,7 +151,10 @@ The PDP implements access control logic using the Open Policy Agent.
 
 ## Sequence Diagram
 ### Request access to the Foo service
-It is assumed that the user has been authenticated at the source of the access request.
+It is assumed that the user has already been authenticated at the time of request.
+In practice, I think it is necessary to design and implement the application with authentication in mind.
+
+This sequence is common to RBAC, ReBAC, and ABAC use cases.
 
 ```mermaid
 sequenceDiagram
@@ -126,9 +187,24 @@ sequenceDiagram
 5. Request Policy Information from PRP: The PDP sends a request to the PRP to obtain policy information (e.g., rules related to access control). By obtaining the policy before requesting resource information from the Foo service, if there is a problem with the policy retrieval or the retrieved result, the process can be completed without requesting resource information, which is efficient.
 
 6. Evaluate Policy Using Gathered Information: The PDP evaluates the policy based on the information obtained from the PIP and PRP. Based on the result of this evaluation, it is decided whether access is allowed or not.
+
 7. Return Policy Evaluation Result to PEP: The PDP returns the policy evaluation result (allow or deny) to the PEP. The PEP decides whether to allow access based on this result.
+
 8. Return Access Result to Requester: The PEP returns the access result (allow or deny) to the requester (user or application).
+
 9. Request Resource Information from Foo Service (if Allowed): If access is allowed, the PEP requests resource information from the Foo service. This happens after resource access has been allowed.
+
+There are some differences in the processing flows of RBAC, ReBAC, and ABAC.
+Comparing the processing flows, they are as follows:
+
+| Comparison Criteria           | RBAC (Role-Based)                        | ReBAC (Relationship-Based)                  | ABAC (Attribute-Based)                             |
+| ----------------------------- | ---------------------------------------- | ------------------------------------------- | -------------------------------------------------- |
+| **Control Basis**             | User roles                               | User-resource relationships                 | User and resource attributes                       |
+| **Information from PIP**      | User role information                    | User-resource relationship data             | User attributes, resource attributes               |
+| **Policy Evaluation**         | Checking role-based permissions          | Checking permissions based on relationships | Checking permissions based on attribute conditions |
+| **Dynamic Processing**        | Relatively static                        | Dynamic (adapts to relationship changes)    | Highly dynamic (varied attribute conditions)       |
+| **PDP Evaluation Load**       | Low                                      | Medium                                      | High                                               |
+| **Implementation Complexity** | Easy                                     | Moderate                                    | Complex                                            |
 
 ## Database Schema
 ### Policy Retrieval Point (PRP)
