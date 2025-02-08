@@ -148,6 +148,10 @@ func (s *PEPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO: Determine the authority model. Use a path-based routing method.
+
+	// TODO: Since communication differs in some areas depending on the permission model, we will review the design after implementing the RBAC use case.
+
 	sc, un, err := pipCommunication(userID)
 	if err != nil {
 		log.Printf("Error in PIP communication: %v", err)

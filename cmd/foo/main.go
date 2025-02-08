@@ -4,7 +4,7 @@ import (
 	"net/http"
 )
 
-func handleUsers(w http.ResponseWriter, r *http.Request) {
+func handleRBAC(w http.ResponseWriter, r *http.Request) {
 	// TODO: Implement Later - fetch users from the database
 	// settings := map[string]pkg.DBConfig{
 	// 	"foo": {
@@ -55,13 +55,18 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Hello, Users!"))
 }
 
+func handleReBAC(w http.ResponseWriter, r *http.Request) {
+	//
+}
+
+func handleABAC(w http.ResponseWriter, r *http.Request) {
+	//
+}
+
 func main() {
-	// TODO: RBAC
-	http.HandleFunc("/users", handleUsers)
-
-	// TODO: ABAC
-
-	// TODO: ReBAC
+	http.HandleFunc("/rbac", handleRBAC)
+	http.HandleFunc("/rebac", handleReBAC)
+	http.HandleFunc("/abac", handleABAC)
 
 	http.ListenAndServe(":8080", nil)
 }
