@@ -48,6 +48,7 @@ Because no virtual hosts correspondence is specified, a port specification is re
 `make docker-compose-down`
 
 ## Example of Access Control
+### Use Case
 <!-- TODO: Write usecases here -->
 
 <!-- TODO: -->
@@ -131,16 +132,10 @@ sequenceDiagram
 
 ## Database Schema
 ### Policy Retrieval Point (PRP)
-// TBD:
-
+See [docs/db/prp](https://github.com/bmf-san/poc-opa-access-control-system/tree/main/docs/db/prp)
 
 ### Foo Service
-| Column Name | Data Type | Description |
-|-------------|-----------|-------------|
-| id          | UUID      | A unique identifier for the resource (primary key). |
-| name        | TEXT      | The name of the resource. |
-| created_at  | TIMESTAMP | The creation date and time of the resource. |
-| updated_at  | TIMESTAMP | The last update date and time of the resource. |
+See [docs/db/foo](https://github.com/bmf-san/poc-opa-access-control-system/tree/main/docs/db/foo)
 
 # Contribution
 Issues and Pull Requests are always welcome.
