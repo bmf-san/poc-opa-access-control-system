@@ -56,6 +56,12 @@ func handleUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// TODO: RBAC
 	http.HandleFunc("/users", handleUsers)
+
+	// TODO: ABAC
+
+	// TODO: ReBAC
+
 	http.ListenAndServe(":8080", nil)
 }

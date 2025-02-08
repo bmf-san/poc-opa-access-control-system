@@ -108,3 +108,9 @@ foo-db:
 .PHONY: prp-db
 prp-db:
 	docker compose exec prp psql -U postgres -d prp
+
+# Generate database documentation by tbls
+.PHONY: gen-dbdocs
+gen-dbdocs:
+	@tbls doc postgres://postgres:postgres@localhost:5433/prp?sslmode=disable docs/db/prp --force
+	@tbls doc postgres://postgres:postgres@localhost:5432/foo?sslmode=disable docs/db/foo --force
