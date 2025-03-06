@@ -21,11 +21,5 @@
 go.work
 go.work.sum
 
-# env file
-.env
-
 # Output of the go command
 bin/
-
-# Output of pids
-pids.txt

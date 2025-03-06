@@ -6,7 +6,7 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | uuid |  | false | [public.role_permissions](public.role_permissions.md) [public.abac_policies](public.abac_policies.md) |  |  |
+| id | uuid |  | false | [public.role_permissions](public.role_permissions.md) |  |  |
 | tenant_id | uuid |  | false |  | [public.tenants](public.tenants.md) |  |
 | name | text |  | false |  |  |  |
 | created_at | timestamp without time zone | CURRENT_TIMESTAMP | true |  |  |  |

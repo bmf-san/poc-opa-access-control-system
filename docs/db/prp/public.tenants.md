@@ -6,7 +6,7 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | uuid |  | false | [public.departments](public.departments.md) [public.employment_types](public.employment_types.md) [public.resources](public.resources.md) [public.roles](public.roles.md) [public.attributes](public.attributes.md) [public.users](public.users.md) [public.user_roles](public.user_roles.md) [public.abac_policies](public.abac_policies.md) [public.relationships](public.relationships.md) |  |  |
+| id | uuid |  | false | [public.resources](public.resources.md) [public.roles](public.roles.md) [public.users](public.users.md) [public.user_roles](public.user_roles.md) |  |  |
 | name | text |  | false |  |  |  |
 | created_at | timestamp without time zone | CURRENT_TIMESTAMP | true |  |  |  |
 | updated_at | timestamp without time zone | CURRENT_TIMESTAMP | true |  |  |  |

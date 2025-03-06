@@ -1,116 +1,107 @@
 # Variables
-GO_WORKSPACE_DIR := $(shell pwd)
-CMD_DIR := $(GO_WORKSPACE_DIR)/cmd
-BUILD_DIR := $(GO_WORKSPACE_DIR)/bin
-
-# Applications
-APPS := foo pep pdp pip
+DOCKER_COMPOSE := docker compose
 
 # Default target
 .PHONY: all
-all: build
+all: setup up
 
-# Build all applications
-.PHONY: build
-build: $(APPS)
+.PHONY: setup
+setup:
+	@echo "Setting up dependencies..."
+	@./scripts/setup-deps.sh
 
-# Build each application
-$(APPS):
-	@echo "Building $@..."
-	@mkdir -p $(BUILD_DIR)
-	@cd $(CMD_DIR)/$@ && go build -o $(BUILD_DIR)/$@-service main.go
-	@echo "Built $@ successfully!"
+# Start all services
+.PHONY: up
+up:
+	@echo "Building and starting all services..."
+	@$(DOCKER_COMPOSE) up -d --build
 
-# Clean build artifacts
-.PHONY: clean
-clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf $(BUILD_DIR)
-	@echo "Clean complete!"
+# Stop all services
+.PHONY: down
+down:
+	@echo "Stopping all services..."
+	@$(DOCKER_COMPOSE) down
 
-# Run specific application
-.PHONY: run
-run:
-	@echo "Usage: make run APP=<app_name> or make run-all"
-	@if [ -z "$(APP)" ]; then \
-		echo "Error: APP is not set!"; \
+# Restart all services
+.PHONY: restart
+restart: down up
+
+# Show logs
+.PHONY: logs
+logs:
+	@$(DOCKER_COMPOSE) logs -f
+
+# Show logs for specific service
+.PHONY: log
+log:
+	@if [ -z "$(SERVICE)" ]; then \
+		echo "Usage: make log SERVICE=<service_name>"; \
 		exit 1; \
 	fi
-	@$(BUILD_DIR)/$(APP)-service & echo $$! >> pids.txt
-	@echo "$(APP)-service is running with PID: $$!"
+	@$(DOCKER_COMPOSE) logs -f $(SERVICE)
 
-.PHONY: run-all
-run-all: build
-	@echo "Starting all applications in the background..."
-	@> pids.txt # Clear the PID file
-	@for app in $(APPS); do \
-		echo "Starting $$app..."; \
-		$(BUILD_DIR)/$$app-service & echo $$! >> pids.txt; \
-	done
-	@echo "All applications are running in the background. PIDs saved to pids.txt."
-
-.PHONY: stop
-stop:
-	@if [ ! -f pids.txt ]; then \
-		echo "No running processes found."; \
-		exit 1; \
-	fi
-	@echo "Stopping all applications..."
-	@cat pids.txt | xargs kill -9
-	@rm -f pids.txt
-	@echo "All applications have been stopped."
-
-# Run tests
-.PHONY: test
-test:
-	@echo "Running tests..."
-	@for module in ./cmd/foo ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
-		echo "Testing $$module..."; \
-		go test $$module/... || exit 1; \
-	done
-
-# Tidy Go modules in each app
-.PHONY: tidy
-tidy:
-	@echo "Tidying Go modules in each app..."
-	@for module in ./cmd/foo ./cmd/pep ./cmd/pdp ./cmd/pip ./internal; do \
-		echo "Tidying $$module..."; \
-		cd $$module && go mod tidy && cd -; \
-	done
-
-# Initialize Go workspace
-.PHONY: init
-init:
-	@echo "Initializing Go workspace..."
-	@go work init ./cmd/foo ./cmd/pep ./cmd/pdp ./cmd/pip ./internal
-	@echo "Tidying Go modules in each app..."
-	$(MAKE) tidy
-
-# Start docker-compose
-.PHONY: docker-compose-up
-docker-compose-up:
-	@echo "Starting docker compose..."
-	@docker compose up -d
-
-# Stop docker-compose
-.PHONY: docker-compose-down
-docker-compose-down:
-	@echo "Stopping docker compose..."
-	@docker compose down
-
-
-# Execute a command in the foo database container
-.PHONY: foo-db
-foo-db:
-	docker compose exec foo psql -U postgres -d foo
+# Execute a command in the employee database container
+.PHONY: employee-db
+employee-db:
+	@$(DOCKER_COMPOSE) exec -it employee-db psql -U postgres -d employee
 
 # Execute a command in the prp database container
 .PHONY: prp-db
 prp-db:
-	docker compose exec prp psql -U postgres -d prp
+	@$(DOCKER_COMPOSE) exec -it prp-db psql -U postgres -d prp
+
+# Run tests in containers
+.PHONY: test
+test: test-opa test-go
+
+.PHONY: test-go
+test-go: vet-go
+	@echo "Running Go tests..."
+	@cd cmd/pep && go test -v -race ./... || exit 1
+	@cd cmd/pdp && go test -v -race ./... || exit 1
+	@cd cmd/pip && go test -v -race ./... || exit 1
+	@cd internal && go test -v -race ./... || exit 1
+	@echo "All Go tests passed!"
+
+.PHONY: fmt-go
+fmt-go:
+	@echo "Checking Go formatting..."
+	@if [ "$$(gofmt -s -l . | wc -l)" -gt 0 ]; then \
+		echo "The following files are not formatted correctly:"; \
+		gofmt -s -l .; \
+		exit 1; \
+	fi
+	@echo "Go formatting check passed!"
+
+.PHONY: vet-go
+vet-go:
+	@echo "Running go vet..."
+	@cd cmd/pep && go vet ./... || exit 1
+	@cd cmd/pdp && go vet ./... || exit 1
+	@cd cmd/pip && go vet ./... || exit 1
+	@cd internal && go vet ./... || exit 1
+	@echo "Go vet check passed!"
+
+.PHONY: test-opa
+test-opa: check-opa
+	@echo "Running OPA tests..."
+	@cd cmd/pdp/policy && opa test . -v
+	@echo "All OPA tests passed!"
+
+.PHONY: fmt-opa
+fmt-opa:
+	@echo "Formatting OPA policies..."
+	@cd cmd/pdp/policy && opa fmt -w .
+	@echo "OPA formatting complete!"
+
+.PHONY: check-opa
+check-opa:
+	@echo "Checking OPA policies..."
+	@cd cmd/pdp/policy && opa check .
+	@echo "OPA check complete!"
 
 # Generate database documentation by tbls
 .PHONY: gen-dbdocs
 gen-dbdocs:
 	@tbls doc postgres://postgres:postgres@localhost:5433/prp?sslmode=disable docs/db/prp --force
-	@tbls doc postgres://postgres:postgres@localhost:5432/foo?sslmode=disable docs/db/foo --force
+	@tbls doc postgres://postgres:postgres@localhost:5434/employee?sslmode=disable docs/db/employee --force
