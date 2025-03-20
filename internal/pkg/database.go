@@ -6,8 +6,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/jackc/pgx"
-	_ "github.com/jackc/pgx/v5" // PostgreSQLドライバ
+	"github.com/jackc/pgx/v5"
 )
 
 // DBManager is a database manager.
@@ -58,14 +57,10 @@ func (m *DBManager) GetClient(dbName string) (*pgx.Conn, error) {
 		return nil, fmt.Errorf("database configuration for %s not found", dbName)
 	}
 
-	connCfg := pgx.ConnConfig{
-		Host:     config.Host,
-		Port:     uint16(config.Port),
-		User:     config.User,
-		Password: config.Password,
-		Database: config.DBName,
-	}
-	db, err := pgx.Connect(connCfg)
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		config.User, config.Password, config.Host, config.Port, config.DBName, config.SSLMode)
+
+	db, err := pgx.Connect(context.Background(), connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database %s: %w", dbName, err)
 	}
@@ -83,8 +78,9 @@ func (m *DBManager) CloseAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	ctx := context.Background()
 	for name, client := range m.clients {
-		if err := client.Close(); err != nil {
+		if err := client.Close(ctx); err != nil {
 			log.Printf("failed to close database %s: %v", name, err)
 		}
 		delete(m.clients, name)

@@ -6,7 +6,7 @@
 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
-| id | uuid |  | false | [public.role_permissions](public.role_permissions.md) [public.abac_policies](public.abac_policies.md) |  |  |
+| id | uuid |  | false | [public.role_permissions](public.role_permissions.md) |  |  |
 | name | text |  | false |  |  |  |
 
 ## Constraints

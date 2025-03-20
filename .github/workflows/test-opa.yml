@@ -1,0 +1,36 @@
+name: Test OPA
+
+on:
+  push:
+    paths:
+      - 'cmd/pdp/policy/**'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'cmd/pdp/policy/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: OPA Policy Tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Check OPA formatting
+        run: |
+          if [ -n "$(make fmt-opa 2>&1 | grep -i error)" ]; then
+            echo "Found formatting issues. Please run 'make fmt-opa' to fix them."
+            exit 1
+          fi
+
+      - name: Run OPA tests
+        run: make test-opa
+
+      - name: Validate policies
+        run: make check-opa

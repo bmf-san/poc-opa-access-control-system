@@ -1,19 +1,27 @@
 services:
-  foo:
+  employee-db:
     image: postgres:17.2
-    container_name: foo
+    container_name: employee-db
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: foo
+      POSTGRES_DB: employee
     volumes:
-      - ./postgres/foo/1_init.sql:/docker-entrypoint-initdb.d/1_init.sql
-      - ./postgres/foo/2_data.sql:/docker-entrypoint-initdb.d/2_data.sql
-  prp:
+      - ./postgres/employee/1_init.sql:/docker-entrypoint-initdb.d/1_init.sql
+      - ./postgres/employee/2_data.sql:/docker-entrypoint-initdb.d/2_data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  prp-db:  # Renamed from prp to prp-db for clarity
     image: postgres:17.2
-    container_name: prp
+    container_name: prp-db
     ports:
       - "5433:5432"
     environment:
@@ -23,3 +31,72 @@ services:
     volumes:
       - ./postgres/prp/1_init.sql:/docker-entrypoint-initdb.d/1_init.sql
       - ./postgres/prp/2_data.sql:/docker-entrypoint-initdb.d/2_data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  pep:
+    build:
+      context: .
+      dockerfile: ./build/pep/Dockerfile
+    container_name: pep
+    ports:
+      - "80:80"
+    depends_on:
+      pdp:
+        condition: service_started
+      prp-db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  pdp:
+    build:
+      context: .
+      dockerfile: ./build/pdp/Dockerfile
+    container_name: pdp
+    ports:
+      - "8081:8081"
+    depends_on:
+      employee-db:
+        condition: service_healthy
+      prp-db:  # Updated dependency name
+        condition: service_healthy
+    networks:
+      - app-network
+
+  pip:
+    build:
+      context: .
+      dockerfile: ./build/pip/Dockerfile
+    container_name: pip
+    ports:
+      - "8082:8082"
+    depends_on:
+      employee-db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  employee:
+    build:
+      context: .
+      dockerfile: ./build/employee/Dockerfile
+    container_name: employee
+    ports:
+      - "8083:8083"
+    depends_on:
+      employee-db:
+        condition: service_healthy
+      pep:
+        condition: service_started
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

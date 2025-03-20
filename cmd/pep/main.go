@@ -1,206 +1,327 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"poc-opa-access-control-system/internal/model"
-	"poc-opa-access-control-system/internal/pkg"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/bmf-san/poc-opa-access-control-system/internal/model"
+	"github.com/bmf-san/poc-opa-access-control-system/internal/repository"
 )
 
-// PEPServer is a struct that represents a PEP server.
-type PEPServer struct {
-	proxy *httputil.ReverseProxy
+// ResourceRepository defines the interface for resource operations
+type ResourceRepository interface {
+	GetResourceIDByType(ctx context.Context, resourceType string) (string, error)
 }
 
-var backends = map[string]string{
-	"foo.local": "http://foo.local:8080",
+type ProxyHandler struct {
+	proxy        *httputil.ReverseProxy
+	pdpHost      string
+	resourceRepo ResourceRepository
+	director     func(*http.Request)
 }
 
-func getTargetURL(r *http.Request) (*url.URL, error) {
-	backend, exists := backends[r.Host]
-	if !exists {
-		return nil, fmt.Errorf("Backend not found")
+func defaultDirector(req *http.Request) {
+	targetHost := req.Host
+	if strings.Contains(targetHost, ":") {
+		targetHost = strings.Split(targetHost, ":")[0]
 	}
-	targetURL, err := url.Parse(backend)
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing URL: %v", err)
+
+	// Convert domain name to container name (e.g., employee.local -> employee)
+	if strings.HasSuffix(targetHost, ".local") {
+		targetHost = strings.TrimSuffix(targetHost, ".local")
 	}
-	return targetURL, nil
+
+	backendURL := &url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s:8083", targetHost),
+	}
+
+	req.URL.Scheme = backendURL.Scheme
+	req.URL.Host = backendURL.Host
+	req.Host = backendURL.Host
+
+	log.Printf("[DEBUG] Proxying request to %s", backendURL.String())
 }
 
-// NewPEPServer creates a new PEP server.
-func NewPEPServer() *PEPServer {
-	director := func(req *http.Request) {
-		targetURL, err := getTargetURL(req)
-		if err != nil {
-			log.Printf("Error getting target URL: %v", err)
-			return
-		}
-		req.URL.Scheme = targetURL.Scheme
-		req.URL.Host = targetURL.Host
-		req.Header.Set("X-Forwarded-Host", req.Host)
-		req.Header.Set("X-Forwarded-Proto", req.URL.Scheme)
+func NewProxyHandler(pdpHost string, resourceRepo ResourceRepository) *ProxyHandler {
+	h := &ProxyHandler{
+		pdpHost:      pdpHost,
+		resourceRepo: resourceRepo,
+		director:     defaultDirector,
 	}
-	return &PEPServer{
-		proxy: &httputil.ReverseProxy{Director: director},
+
+	h.proxy = &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			h.director(req)
+		},
+	}
+
+	return h
+}
+
+// SetDirector allows overriding the default director function (useful for testing)
+func (h *ProxyHandler) SetDirector(director func(*http.Request)) {
+	h.director = director
+}
+
+type PolicyResponse = model.PolicyResponse
+
+type responseInterceptor struct {
+	writer     http.ResponseWriter
+	body       []byte
+	header     http.Header
+	hasContent bool
+	statusCode int
+}
+
+func (ri *responseInterceptor) Header() http.Header {
+	if ri.header == nil {
+		ri.header = make(http.Header)
+	}
+	return ri.header
+}
+
+func (ri *responseInterceptor) Write(p []byte) (n int, err error) {
+	ri.body = append(ri.body, p...)
+	ri.hasContent = true
+	return len(p), nil
+}
+
+func (ri *responseInterceptor) WriteHeader(statusCode int) {
+	ri.statusCode = statusCode
+}
+
+func (ri *responseInterceptor) copyHeadersTo(w http.ResponseWriter) {
+	for key, values := range ri.header {
+		w.Header()[key] = values
 	}
 }
 
-// PIP communication communicates with the PIP.
-// Get the additional information required for PDP processing.
-func pipCommunication(userID string) (statusCode int, userName string, err error) {
-	httpClient := pkg.NewClient("http://pip.local:8082")
-	body := map[string]string{"id": userID}
-	res, err := httpClient.Post("userinfo", body)
+func (h *ProxyHandler) checkAccess(_ *http.Request, req model.EvaluationRequest) (PolicyResponse, error) {
+	log.Printf("[INFO] Checking access with request: %+v", req)
+
+	client := &http.Client{}
+
+	url := fmt.Sprintf("%s/evaluation", h.pdpHost)
+	jsonData, err := json.Marshal(req)
 	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error contacting PIP: %v", err)
+		log.Printf("[ERROR] Failed to marshal request: %v", err)
+		return PolicyResponse{}, err
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return res.StatusCode, "", fmt.Errorf("Access denied by pip")
+
+	httpReq, err := http.NewRequest("POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		log.Printf("[ERROR] Failed to create request: %v", err)
+		return PolicyResponse{}, err
 	}
-	var u model.User
-	if err := json.NewDecoder(res.Body).Decode(&u); err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error decoding PIP response: %v", err)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		log.Printf("[ERROR] Failed to send request: %v", err)
+		return PolicyResponse{}, err
 	}
-	// NOTE: Get user name from PIP as an additional information required to reference the policy.
-	// However, it is only obtained in a pseudo manner and is not used in PDP processing.
-	return http.StatusOK, u.Name, nil
+	defer resp.Body.Close()
+
+	var policyResp PolicyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&policyResp); err != nil {
+		log.Printf("[ERROR] Failed to decode response: %v", err)
+		return PolicyResponse{}, err
+	}
+
+	log.Printf("[INFO] Policy evaluation result: allowed=%v", policyResp.Allow)
+	return policyResp, nil
 }
 
-// PDP Policy communication communicates with the PDP.
-// Get the policy information required for PDP processing.
-func pdpPolicyCommunication() (statusCode int, policy string, err error) {
-	httpClient := pkg.NewClient("http://pdp.local:8081")
-	// TODO: Use POST method.
-	res, err := httpClient.Get("policy")
+func (h *ProxyHandler) getResourceID(ctx context.Context, resourceType string) (string, error) {
+	log.Printf("[DEBUG] Getting resource ID for type: %s", resourceType)
+	id, err := h.resourceRepo.GetResourceIDByType(ctx, resourceType)
 	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error contacting PDP: %v", err)
+		log.Printf("[ERROR] Failed to get resource ID for type %s: %v", resourceType, err)
+		return "", err
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return res.StatusCode, "", fmt.Errorf("Access denied by pdp")
-	}
-
-	// Use struct to store the response.
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error reading PDP response: %v", err)
-	}
-	return http.StatusOK, string(body), nil
+	log.Printf("[DEBUG] Found resource ID %s for type %s", id, resourceType)
+	return id, nil
 }
 
-// externalServiceCommunication communicates with the external service.
-// Get the response from the external service.
-func externalServiceCommunication(targetURL string, targetPath string) (statusCode int, rslt string, err error) {
-	httpClient := pkg.NewClient(targetURL)
-	res, err := httpClient.Get(targetPath)
-	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error contacting external service: %v", err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return res.StatusCode, "", fmt.Errorf("Access denied by external service")
-	}
-
-	// TODO: Use struct to store the response.
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error reading external service response: %v", err)
-	}
-	return http.StatusOK, string(body), nil
-}
-
-// PDP Evaluate communication communicates with the PDP.
-// Get the evaluation result from the PDP.
-func pdpEvaluateCommunication() (statusCode int, rslt string, err error) {
-	httpClient := pkg.NewClient("http://pdp.local:8081")
-	res, err := httpClient.Get("evaluation") // TODO: Use POST method if necessary
-	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error contacting PDP: %v", err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return res.StatusCode, "", fmt.Errorf("Access denied by pdp")
-	}
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return http.StatusInternalServerError, "", fmt.Errorf("Error reading PDP response: %v", err)
-	}
-	return http.StatusOK, string(body), nil
-}
-
-// ServeHTTP intercepts the request and processes it.
-func (s *PEPServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Intercepted request to %s %s", r.Method, r.URL.String())
-
-	// NOTE: For simplicity, I use UserID, but if you implement token-based authentication, you can use JWT etc.
-	// I think it depends on the implementation what you want to use as the key to reference the policy information.
+func (h *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Extract user ID from header
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
-		log.Printf("Missing X-User-ID header")
+		log.Printf("[ERROR] Missing X-User-ID header in request: %s %s", r.Method, r.URL.Path)
 		http.Error(w, "Missing X-User-ID header", http.StatusBadRequest)
 		return
 	}
+	log.Printf("[INFO] Handling request from user %s: %s %s", userID, r.Method, r.URL.Path)
 
-	// TODO: Determine the authority model. Use a path-based routing method.
-
-	// TODO: Since communication differs in some areas depending on the permission model, we will review the design after implementing the RBAC use case.
-
-	sc, un, err := pipCommunication(userID)
-	if err != nil {
-		log.Printf("Error in PIP communication: %v", err)
-		http.Error(w, "Error in PIP communication", sc)
+	// Check if this is a non-resource path (e.g., /health)
+	path := r.URL.Path
+	if path == "/health" {
+		log.Printf("[INFO] Non-resource path, forwarding directly: %s", path)
+		h.proxy.ServeHTTP(w, r)
 		return
 	}
-	fmt.Printf("PIP response: %s\n", un)
 
-	sc, po, err := pdpPolicyCommunication()
-	if err != nil {
-		log.Printf("Error in PDP communication: %v", err)
-		http.Error(w, "Error in PDP communication", sc)
+	// Extract and validate resource information
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	fmt.Printf("PDP response: %s\n", po)
 
-	targetURL, err := getTargetURL(r)
+	var (
+		resourceType string
+		resourceID   string
+		err          error
+	)
+
+	resourceType = parts[0]
+	resourceID, err = h.getResourceID(r.Context(), resourceType)
 	if err != nil {
-		log.Printf("Backend not found: %v", err)
-		http.Error(w, "Backend not found", http.StatusNotFound)
+		log.Printf("[ERROR] Failed to get resource ID: %v", err)
+		http.Error(w, "Access denied", http.StatusForbidden)
 		return
 	}
-	targetPath := r.URL.Path
-	sc, rs, err := externalServiceCommunication(targetURL.String(), targetPath)
-	if err != nil {
-		log.Printf("Error in external service communication: %v", err)
-		http.Error(w, "Error in external service communication", sc)
+
+	if len(parts) >= 2 {
+		resourceID = parts[1]
+		log.Printf("[INFO] Accessing specific resource: type=%s, id=%s", resourceType, resourceID)
+	} else {
+		log.Printf("[INFO] Accessing resource collection: type=%s", resourceType)
+	}
+
+	// Only support GET method for view action
+	if r.Method != http.MethodGet {
+		log.Printf("[ERROR] Unsupported HTTP method: %s", r.Method)
+		http.Error(w, "Only GET method is supported", http.StatusMethodNotAllowed)
 		return
 	}
-	fmt.Printf("External service response: %s\n", rs)
+	action := "view"
 
-	sc, ev, err := pdpEvaluateCommunication()
+	// First, check access without data
+	req := model.EvaluationRequest{
+		UserID:       userID,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Action:       action,
+	}
+
+	// Evaluate initial access
+	policyResponse, err := h.checkAccess(r, req)
 	if err != nil {
-		log.Printf("Error in PDP evaluation communication: %v", err)
-		http.Error(w, "Error in PDP evaluation communication", sc)
+		log.Printf("[ERROR] Failed to check access: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to check access: %v", err), http.StatusInternalServerError)
 		return
 	}
-	fmt.Printf("PDP evaluation response: %s\n", ev)
 
-	// Proxy the request to the external service and return the response directly to the client
-	s.proxy.ServeHTTP(w, r)
+	if !policyResponse.Allow {
+		log.Printf("[INFO] Access denied: user=%s, resourceType=%s, resourceID=%s, action=%s",
+			userID, resourceType, resourceID, action)
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Create a response interceptor
+	interceptor := &responseInterceptor{
+		writer: w,
+	}
+
+	// Forward the request and get the response
+	originalWriter := interceptor.writer
+	h.proxy.ServeHTTP(interceptor, r)
+
+	// Handle response data
+	if !interceptor.hasContent {
+		interceptor.copyHeadersTo(originalWriter)
+		if interceptor.statusCode > 0 {
+			originalWriter.WriteHeader(interceptor.statusCode)
+		}
+		originalWriter.Write(interceptor.body)
+		return
+	}
+
+	var data map[string][]interface{}
+	if err := json.Unmarshal(interceptor.body, &data); err != nil {
+		log.Printf("[ERROR] Failed to unmarshal response: %v", err)
+		http.Error(originalWriter, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[DEBUG] Received data from backend: %+v", data)
+
+	// Re-evaluate with data for field-level filtering
+	req.Data = data
+
+	policyResponse, err = h.checkAccess(r, req)
+	if err != nil {
+		log.Printf("[ERROR] Failed to filter data: %v", err)
+		http.Error(originalWriter, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Copy headers and write response
+	interceptor.copyHeadersTo(originalWriter)
+	originalWriter.Header().Set("Content-Type", "application/json")
+
+	if policyResponse.FilteredData == nil {
+		log.Printf("[ERROR] No filtered data in policy response")
+		http.Error(originalWriter, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := json.NewEncoder(originalWriter).Encode(policyResponse.FilteredData); err != nil {
+		log.Printf("[ERROR] Failed to encode filtered data: %v", err)
+		http.Error(originalWriter, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[DEBUG] Successfully filtered and sent response for resource: %s", resourceType)
 }
 
 func main() {
-	pepServer := NewPEPServer()
+	log.Printf("Starting PEP proxy server on port 80")
 
-	log.Println("PEP server is running on :80")
-
-	if err := http.ListenAndServe(":80", pepServer); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	// Initialize database connection
+	log.Printf("[DEBUG] Connecting to database...")
+	conn, err := pgx.Connect(context.Background(), "postgres://postgres:postgres@prp-db:5432/prp?sslmode=disable")
+	if err != nil {
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
+	defer conn.Close(context.Background())
+
+	// Test database connection
+	var testResult string
+	err = conn.QueryRow(context.Background(), "SELECT 'connection_test'").Scan(&testResult)
+	if err != nil {
+		log.Fatalf("Failed to query database: %v", err)
+	}
+	log.Printf("[DEBUG] Database connection test successful: %s", testResult)
+
+	// Initialize repository
+	log.Printf("[DEBUG] Initializing repository...")
+	repo := repository.NewRepository(conn)
+
+	// Initialize proxy handler
+	proxyHandler := NewProxyHandler("http://pdp:8081", repo)
+
+	mux := http.NewServeMux()
+	mux.Handle("/", proxyHandler)
+
+	server := &http.Server{
+		Handler:      mux,
+		Addr:         "0.0.0.0:80",
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
+
+	log.Fatal(server.ListenAndServe())
 }

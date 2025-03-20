@@ -8,8 +8,6 @@
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
 | id | uuid |  | false |  |  |  |
 | tenant_id | uuid |  | false |  | [public.tenants](public.tenants.md) |  |
-| department_id | uuid |  | false |  | [public.departments](public.departments.md) |  |
-| employment_type_id | uuid |  | false |  | [public.employment_types](public.employment_types.md) |  |
 | name | text |  | false |  |  |  |
 | email | text |  | false |  |  |  |
 | created_at | timestamp without time zone | CURRENT_TIMESTAMP | true |  |  |  |
@@ -20,8 +18,6 @@
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
 | users_tenant_id_fkey | FOREIGN KEY | FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE |
-| users_department_id_fkey | FOREIGN KEY | FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE |
-| users_employment_type_id_fkey | FOREIGN KEY | FOREIGN KEY (employment_type_id) REFERENCES employment_types(id) ON DELETE CASCADE |
 | users_pkey | PRIMARY KEY | PRIMARY KEY (id) |
 | users_email_key | UNIQUE | UNIQUE (email) |
 
